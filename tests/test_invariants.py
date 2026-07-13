@@ -1,8 +1,6 @@
 """
 tests/test_invariants.py — the assertion suite.
 
-Per CLAUDE.md hard rule #4 ("assertions before features") this suite was
-started before models/elo.py existed, with four invariants deliberately red.
 Now that adapters/football.py, core/baselines.py, and models/elo.py all
 exist, those four run against the REAL pipeline (full match history,
 Pinnacle-closing eval window) instead of random fixtures -- fixtures can't
