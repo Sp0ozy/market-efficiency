@@ -1,19 +1,23 @@
 """
 tests/test_invariants.py — the assertion suite.
 
-Written before models/elo.py exists (CLAUDE.md hard rule #4: assertions
-before features). Two groups of tests:
+Per CLAUDE.md hard rule #4 ("assertions before features") this suite was
+started before models/elo.py existed, with four invariants deliberately red.
+Now that adapters/football.py, core/baselines.py, and models/elo.py all
+exist, those four run against the REAL pipeline (full match history,
+Pinnacle-closing eval window) instead of random fixtures -- fixtures can't
+prove correlation or ordering claims since they're independently random by
+construction.
 
-  GREEN now -- chronology, probability normalization, and the scoring
-  ground-truth anchors. These only need tests/fixtures.py and core/scoring.py,
-  both of which already exist.
+  GREEN, fixture-based -- chronology, probability normalization, and the
+  scoring ground-truth anchors. These only need tests/fixtures.py and
+  core/scoring.py.
 
-  RED by design -- four invariants that depend on a real Elo model and market
-  adapter that haven't been built yet. Each imports its not-yet-existing
-  module locally, inside the test body, so it fails with a clean
-  ModuleNotFoundError instead of blocking collection of the green tests above.
-  DO NOT weaken these thresholds to make them pass early -- the redness is
-  the correct, expected signal that the model isn't built yet.
+  GREEN, real-pipeline-based -- the four invariants. Each still imports its
+  pipeline modules lazily (via a fixture), so a regression in any one module
+  fails only the tests that touch it. DO NOT weaken these thresholds to make
+  a future regression pass -- a failure here means a lookahead bug or a
+  broken rating loop, never "the market is more efficient than we thought".
 """
 
 import numpy as np
@@ -23,7 +27,7 @@ from core.scoring import brier, log_loss
 from tests.fixtures import fake_market_table, fake_model_table, to_arrays
 
 # ---------------------------------------------------------------------------
-# GREEN now
+# GREEN, fixture-based
 # ---------------------------------------------------------------------------
 
 
@@ -57,60 +61,67 @@ def test_brier_uniform_ground_truth():
 
 
 # ---------------------------------------------------------------------------
-# RED by design -- until the real Elo model and market adapter exist
+# GREEN, real-pipeline-based
 # ---------------------------------------------------------------------------
 
+_OUTCOME_TO_INT = {"H": 0, "D": 1, "A": 2}
 
-def test_model_correlates_with_market():
-    """Elo's home-win probability must correlate with the market's (> 0.6).
 
-    A correlation below 0.6 would mean home/away are swapped, team names are
-    ghosted, or ratings never update -- so this stays a hard assertion, not
-    a threshold to relax.
+@pytest.fixture(scope="module")
+def real_pipeline():
+    """Walk-forward Elo over the FULL match history, plus the market table.
+
+    Loaded lazily (only when a test requests this fixture) so a missing
+    pipeline module fails just the tests that depend on it, not collection
+    of the fixture-based tests above.
     """
-    from models.elo import fit_predict  # red until the model exists
+    from adapters.football import load_matches, market_table
+    from models.elo import run_elo
 
-    p_elo = fit_predict()
-    p_mkt = fake_market_table()
-    assert np.corrcoef(p_elo[:, 0], p_mkt[:, 0])[0, 1] > 0.6
+    matches = load_matches()
+    elo_preds, ratings = run_elo(matches)
+    market = market_table()
+
+    # Elo trains on all matches, but is only compared to the market over the
+    # Pinnacle-closing eval window -- the market's own coverage defines it.
+    eval_elo = elo_preds.merge(
+        market[["date", "home", "away"]], on=["date", "home", "away"], how="inner"
+    )
+    return elo_preds, ratings, market, eval_elo
 
 
-def test_elo_beats_base_rates():
-    """Elo must beat the dumb base-rate baseline on log loss.
+def test_model_correlates_with_market(real_pipeline):
+    """Elo's home-win probability must correlate with the market's (> 0.6)."""
+    _elo_preds, _ratings, market, eval_elo = real_pipeline
+    corr = np.corrcoef(eval_elo["p_home"], market["p_home"])[0, 1]
+    assert corr > 0.6
 
-    If this ever fails once both exist, the model is BROKEN, not "efficient"
-    -- do not reclassify a failure here as an acceptable outcome.
-    """
-    from core.baselines import base_rate_predictions  # red until this exists
-    from models.elo import fit_predict  # red until the model exists
 
-    p_elo = fit_predict()
-    outcomes = fake_market_table()["outcome"]
+def test_elo_beats_base_rates(real_pipeline):
+    """Elo must beat the dumb base-rate baseline on log loss, over its full history."""
+    from core.baselines import base_rate_predictions
+
+    elo_preds, _ratings, _market, _eval_elo = real_pipeline
+    outcomes = elo_preds["outcome"].map(_OUTCOME_TO_INT).to_numpy()
+    p_elo = elo_preds[["p_home", "p_draw", "p_away"]].to_numpy()
     p_base = base_rate_predictions(outcomes)
     assert log_loss(p_elo, outcomes) < log_loss(p_base, outcomes)
 
 
-def test_market_beats_elo():
-    """THE CENTRAL ASSERTION. We assert that we LOSE to Pinnacle's close.
+def test_market_beats_elo(real_pipeline):
+    """THE CENTRAL ASSERTION. We assert that we LOSE to Pinnacle's close."""
+    _elo_preds, _ratings, market, eval_elo = real_pipeline
 
-    If this ever fails once both are real: LOOKAHEAD BUG. Do not celebrate.
-    Debug it.
-    """
-    from models.elo import fit_predict  # red until the model exists
+    outcomes = eval_elo["outcome"].map(_OUTCOME_TO_INT).to_numpy()
+    outcomes_mkt = market["outcome"].map(_OUTCOME_TO_INT).to_numpy()
+    assert (outcomes == outcomes_mkt).all()
 
-    p_elo = fit_predict()
-    market = fake_market_table()  # placeholder for the REAL Pinnacle-close table
-    p_mkt, outcomes = to_arrays(market)
-    assert log_loss(p_elo, outcomes) > log_loss(p_mkt, outcomes)
+    p_elo = eval_elo[["p_home", "p_draw", "p_away"]].to_numpy()
+    p_mkt = market[["p_home", "p_draw", "p_away"]].to_numpy()
+    assert log_loss(p_elo, outcomes) > log_loss(p_mkt, outcomes_mkt)
 
 
-def test_no_ghost_teams():
-    """Every team's rating must have moved away from the 1500 seed.
-
-    A rating still at 1500.0 means that team never had a game processed --
-    almost always a team-name mismatch, not a legitimately "average" team.
-    """
-    from models.elo import fit_ratings  # red until the model exists
-
-    ratings = fit_ratings()
+def test_no_ghost_teams(real_pipeline):
+    """Every team's rating must have moved away from the 1500 seed."""
+    _elo_preds, ratings, _market, _eval_elo = real_pipeline
     assert (np.array(list(ratings.values())) != 1500.0).all()
