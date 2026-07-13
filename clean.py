@@ -1,8 +1,4 @@
-from __future__ import annotations
-
 from pathlib import Path
-from py_compile import main
-
 import pandas as pd
 
 IN = Path("data/matches.parquet")
