@@ -76,3 +76,7 @@ def bet365_close(path: Path = CLEAN) -> pd.DataFrame:
 
 def bet365_early(path: Path = CLEAN) -> pd.DataFrame:
     return market_table(path, columns=("B365H", "B365D", "B365A"))
+
+def season_start(matches: pd.DataFrame, season: str) -> pd.Timestamp:
+    """The first match date of `season` within an already-loaded matches table."""
+    return matches.loc[matches["season"] == season, "date"].min()

@@ -3,11 +3,11 @@ import numpy as np
 from scipy.optimize import curve_fit
 
 # Tuned via tune.py grid search on the training window only (date < 2019-01-01,
-DEFAULT_K = 30.0
+DEFAULT_K = 25.0
 DEFAULT_HFA = 75.0
-DRAW_MIN = 0.07244
-DRAW_MAX = 0.303567
-DRAW_SCALE = 262.6815
+DRAW_MIN = 0.041548
+DRAW_MAX = 0.294611
+DRAW_SCALE = 285.9921
 
 _SCORE = {"H": 1.0, "D": 0.5, "A": 0.0}
 

@@ -12,7 +12,7 @@ Run: python tune.py
 import numpy as np
 import pandas as pd
 
-from adapters.football import load_matches
+from adapters.football import load_matches, season_start
 from core.scoring import log_loss
 from models.elo import fit_draw_model, run_elo
 
@@ -27,12 +27,12 @@ _OUTCOME_TO_INT = {"H": 0, "D": 1, "A": 2}
 def _outcomes(df: pd.DataFrame) -> np.ndarray:
     return df["outcome"].map(_OUTCOME_TO_INT).to_numpy()
 
-
 def main() -> None:
     matches = load_matches()
-    train = matches[matches["date"] < TRAIN_CUTOFF]
-    assert train["date"].max() < TRAIN_CUTOFF, "training window leaked into the holdout"
-
+    train_cutoff = season_start(matches, "1920")
+    train = matches[matches["date"] < train_cutoff]
+    assert train["date"].max() < train_cutoff, "training window leaked into the holdout"
+    print(f"train cutoff (start of season 1920): {train_cutoff.date()}")
     results = []
     for k in K_GRID:
         for hfa in HFA_GRID:
