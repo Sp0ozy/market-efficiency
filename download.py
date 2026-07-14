@@ -16,8 +16,10 @@ OUT = Path("data/matches.parquet")
 KEEP = [
     "Div", "season", "Date", "HomeTeam", "AwayTeam",
     "FTHG", "FTAG", "FTR",
-    "PSH", "PSD", "PSA",      # Pinnacle pre-match
-    "PSCH", "PSCD", "PSCA",   # Pinnacle CLOSING <- the benchmark
+    "PSH", "PSD", "PSA",              # Pinnacle pre-match
+    "PSCH", "PSCD", "PSCA",           # Pinnacle CLOSING 
+    "B365H", "B365D", "B365A",        # Bet365 pre-match 
+    "B365CH", "B365CD", "B365CA",     # Bet365 CLOSING
 ]
 
 
@@ -63,6 +65,13 @@ def main() -> None:
 
     print("\nteam names -- scan for duplicates of the same club:")
     print(sorted(pd.concat([data.HomeTeam, data.AwayTeam]).unique()))
+    
+    print("\nBet365 coverage by season:")
+    cov365 = data.assign(
+        early=data["B365H"].notna() if "B365H" in data else False,
+        close=data["B365CH"].notna() if "B365CH" in data else False,
+    ).groupby("season")[["early", "close"]].mean().round(2)
+    print(cov365.to_string())
     
 
 

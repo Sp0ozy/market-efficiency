@@ -40,13 +40,17 @@ def load_matches(path: Path = CLEAN) -> pd.DataFrame:
     return df
 
 
-def market_table(path: Path = CLEAN) -> pd.DataFrame:
+def market_table(
+    path: Path = CLEAN,
+    columns: tuple[str, str, str] = ("PSCH", "PSCD", "PSCA"),
+) -> pd.DataFrame:    
     """The dataframe including market probabilities, built by de-vigging Pinnacle CLOSING odds."""
+    home_col, draw_col, away_col = columns
     df = pd.read_parquet(path)
     df = df.rename(columns=_RENAME)
-    df = df.dropna(subset=["PSCH", "PSCD", "PSCA"])
+    df = df.dropna(subset=columns)
 
-    odds = df[["PSCH", "PSCD", "PSCA"]].to_numpy(dtype=float)
+    odds = df[[home_col, draw_col, away_col]].to_numpy(dtype=float)
     probs = devig_multiplicative(odds)
 
     out = df[["date", "div", "season", "home", "away", "outcome"]].copy()
@@ -59,3 +63,16 @@ def market_table(path: Path = CLEAN) -> pd.DataFrame:
     assert np.allclose(out[["p_home", "p_draw", "p_away"]].sum(axis=1), 1.0)
     assert out["date"].is_monotonic_increasing
     return out
+
+def pinnacle_close(path: Path = CLEAN) -> pd.DataFrame:
+    return market_table(path, columns=("PSCH", "PSCD", "PSCA"))
+
+def pinnacle_early(path: Path = CLEAN) -> pd.DataFrame:
+    return market_table(path, columns=("PSH", "PSD", "PSA"))
+
+def bet365_close(path: Path = CLEAN) -> pd.DataFrame:
+    return market_table(path, columns=("B365CH", "B365CD", "B365CA"))
+
+
+def bet365_early(path: Path = CLEAN) -> pd.DataFrame:
+    return market_table(path, columns=("B365H", "B365D", "B365A"))
