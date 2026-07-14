@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from scipy.optimize import curve_fit
 
-# Tuned via tune.py grid search on the training window only (date < 2019-01-01,
+# Tuned via tune.py grid search on the training window only
 DEFAULT_K = 25.0
 DEFAULT_HFA = 75.0
 DRAW_MIN = 0.041548
