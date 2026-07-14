@@ -10,10 +10,19 @@ DRAW_SCALE = 313.0340979769688
 
 _SCORE = {"H": 1.0, "D": 0.5, "A": 0.0}
 
-def draw_rate(diff: float) -> float:
-    return DRAW_MIN + (DRAW_MAX - DRAW_MIN) * np.exp(-(diff / DRAW_SCALE) ** 2)
 
-def run_elo(matches: pd.DataFrame, k: float = DEFAULT_K, hfa: float = DEFAULT_HFA) -> tuple[pd.DataFrame, dict[str, float]]:
+def draw_rate(diff: float, d_min: float, d_max: float, scale: float) -> float:
+    return d_min + (d_max - d_min) * np.exp(-(diff / scale) ** 2)
+
+def run_elo(
+    matches: pd.DataFrame,
+    k: float = DEFAULT_K,
+    hfa: float = DEFAULT_HFA,
+    draw_min: float = DRAW_MIN,
+    draw_max: float = DRAW_MAX,
+    draw_scale: float = DRAW_SCALE,
+) -> tuple[pd.DataFrame, dict[str, float]]: 
+    
     """Run Elo on a fixture list, returning predictions and final ratings."""
     
     ratings: dict[str, float] = {}
@@ -26,10 +35,10 @@ def run_elo(matches: pd.DataFrame, k: float = DEFAULT_K, hfa: float = DEFAULT_HF
         diff = (r_home + hfa) - r_away
         e_home = 1.0 / (1.0 + 10.0 ** (-diff / 400.0))
 
-        p_draw = draw_rate(diff)
+        p_draw = draw_rate(diff, draw_min, draw_max, draw_scale)
         p_home = (1.0 - p_draw) * e_home
         p_away = (1.0 - p_draw) * (1.0 - e_home)
-        
+
         rows.append({
             "date": row.date, "div": row.div, "season": row.season,
             "home": row.home, "away": row.away,
@@ -76,11 +85,8 @@ def fit_draw_model(
             bucket_x.append(diffs[mask].mean())
             bucket_y.append(is_draw[mask].mean())
 
-    def curve(diff, d_min, d_max, scale):
-        return d_min + (d_max - d_min) * np.exp(-(diff / scale) ** 2)
-
     (d_min, d_max, scale), _ = curve_fit(
-        curve, bucket_x, bucket_y, p0=[0.15, 0.30, 200.0],
-        bounds=([0, 0, 10], [0.5, 0.6, 1000]),
+        draw_rate, bucket_x, bucket_y, p0=[0.15, 0.30, 200.0], bounds=([0, 0, 10], [0.5, 0.6, 1000])
     )
+    
     return float(d_min), float(d_max), float(scale)
