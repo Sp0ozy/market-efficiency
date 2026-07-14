@@ -1,11 +1,17 @@
 import pandas as pd
+import numpy as np
+from scipy.optimize import curve_fit
 
 DEFAULT_K = 20.0    # a starting point; tuned later
 DEFAULT_HFA = 100.0
-DRAW_RATE = 0.25    # fixed, not tuned -- close to E0's long-run draw rate
+DRAW_MIN = 0.03630324318011566
+DRAW_MAX = 0.2859542939207521
+DRAW_SCALE = 313.0340979769688
 
 _SCORE = {"H": 1.0, "D": 0.5, "A": 0.0}
 
+def draw_rate(diff: float) -> float:
+    return DRAW_MIN + (DRAW_MAX - DRAW_MIN) * np.exp(-(diff / DRAW_SCALE) ** 2)
 
 def run_elo(matches: pd.DataFrame, k: float = DEFAULT_K, hfa: float = DEFAULT_HFA) -> tuple[pd.DataFrame, dict[str, float]]:
     """Run Elo on a fixture list, returning predictions and final ratings."""
@@ -20,10 +26,10 @@ def run_elo(matches: pd.DataFrame, k: float = DEFAULT_K, hfa: float = DEFAULT_HF
         diff = (r_home + hfa) - r_away
         e_home = 1.0 / (1.0 + 10.0 ** (-diff / 400.0))
 
-        p_home = (1.0 - DRAW_RATE) * e_home
-        p_away = (1.0 - DRAW_RATE) * (1.0 - e_home)
-        p_draw = DRAW_RATE
-
+        p_draw = draw_rate(diff)
+        p_home = (1.0 - p_draw) * e_home
+        p_away = (1.0 - p_draw) * (1.0 - e_home)
+        
         rows.append({
             "date": row.date, "div": row.div, "season": row.season,
             "home": row.home, "away": row.away,
@@ -37,3 +43,44 @@ def run_elo(matches: pd.DataFrame, k: float = DEFAULT_K, hfa: float = DEFAULT_HF
 
     predictions = pd.DataFrame(rows)
     return predictions, ratings
+
+def fit_draw_model(
+    matches: pd.DataFrame, k: float = DEFAULT_K, hfa: float = DEFAULT_HFA
+) -> tuple[float, float, float]:
+    """
+    Returns (d_min, d_max, scale) for d_min + (d_max - d_min) * exp(-(diff/scale)**2).
+    """
+    ratings: dict[str, float] = {}
+    diffs, is_draw = [], []
+
+    for row in matches.itertuples(index=False):
+        r_home = ratings.get(str(row.home), 1500.0)
+        r_away = ratings.get(str(row.away), 1500.0)
+        diff = (r_home + hfa) - r_away
+        diffs.append(diff)
+        is_draw.append(1.0 if row.outcome == "D" else 0.0)
+
+        e_home = 1.0 / (1.0 + 10.0 ** (-diff / 400.0))
+        s_home = _SCORE[str(row.outcome)]
+        ratings[str(row.home)] = r_home + k * (s_home - e_home)
+        ratings[str(row.away)] = r_away + k * ((1.0 - s_home) - (1.0 - e_home))
+
+    diffs = np.array(diffs)
+    is_draw = np.array(is_draw)
+
+    edges = np.linspace(diffs.min(), diffs.max(), 21)
+    bucket_x, bucket_y = [], []
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        mask = (diffs >= lo) & (diffs < hi)
+        if mask.sum() >= 20:
+            bucket_x.append(diffs[mask].mean())
+            bucket_y.append(is_draw[mask].mean())
+
+    def curve(diff, d_min, d_max, scale):
+        return d_min + (d_max - d_min) * np.exp(-(diff / scale) ** 2)
+
+    (d_min, d_max, scale), _ = curve_fit(
+        curve, bucket_x, bucket_y, p0=[0.15, 0.30, 200.0],
+        bounds=([0, 0, 10], [0.5, 0.6, 1000]),
+    )
+    return float(d_min), float(d_max), float(scale)
