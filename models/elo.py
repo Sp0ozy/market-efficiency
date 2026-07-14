@@ -2,11 +2,12 @@ import pandas as pd
 import numpy as np
 from scipy.optimize import curve_fit
 
-DEFAULT_K = 20.0    # a starting point; tuned later
-DEFAULT_HFA = 100.0
-DRAW_MIN = 0.03630324318011566
-DRAW_MAX = 0.2859542939207521
-DRAW_SCALE = 313.0340979769688
+# Tuned via tune.py grid search on the training window only (date < 2019-01-01,
+DEFAULT_K = 30.0
+DEFAULT_HFA = 75.0
+DRAW_MIN = 0.07244
+DRAW_MAX = 0.303567
+DRAW_SCALE = 262.6815
 
 _SCORE = {"H": 1.0, "D": 0.5, "A": 0.0}
 
