@@ -21,7 +21,7 @@ def _outcomes(df: pd.DataFrame) -> np.ndarray:
     return df["outcome"].map(_OUTCOME_TO_INT).to_numpy()
 
 
-def main() -> None:
+def build_holdout_table():
     matches = load_matches()
     holdout_start = season_start(matches, "1920")
     train_outcomes = _outcomes(matches[matches["date"] < holdout_start])
@@ -34,7 +34,6 @@ def main() -> None:
         "bet365_early": bet365_early(),
     }
 
-    # Shared window: matches present in ALL four sources, restricted to the holdout.
     shared = sources["pinnacle_close"][_KEYS]
     for name in ("pinnacle_early", "bet365_close", "bet365_early"):
         shared = shared.merge(sources[name][_KEYS], on=_KEYS, how="inner")
@@ -54,6 +53,11 @@ def main() -> None:
     for name, t in aligned_sources.items():
         assert (y == _outcomes(t)).all(), f"{name} outcomes don't line up with elo"
 
+    return elo_h, aligned_sources, y, holdout_start, train_outcomes
+
+
+def main() -> None:
+    elo_h, aligned_sources, y, holdout_start, train_outcomes = build_holdout_table()
     n = len(y)
     train_rate = np.bincount(train_outcomes, minlength=3) / len(train_outcomes)
 
@@ -73,13 +77,14 @@ def main() -> None:
 
     print(f"holdout start (season 1920): {holdout_start.date()}")
     print(f"holdout window (shared across all 4 market sources): "
-          f"{shared['date'].min().date()} -> {shared['date'].max().date()}  (n={n})")
+          f"{elo_h['date'].min().date()} -> {elo_h['date'].max().date()}  (n={n})")
     print(report.round(4).to_string())
 
     print()
     for name in ("pinnacle_close", "bet365_close"):
         corr = np.corrcoef(elo_h["p_home"], aligned_sources[name]["p_home"])[0, 1]
         print(f"corr(p_home elo, p_home {name}) = {corr:.3f}")
+
 
 if __name__ == "__main__":
     main()
