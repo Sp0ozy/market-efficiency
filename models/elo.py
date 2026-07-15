@@ -91,3 +91,29 @@ def fit_draw_model(
     )
     
     return float(d_min), float(d_max), float(scale)
+
+def rating_history(
+    matches: pd.DataFrame, k: float = DEFAULT_K, hfa: float = DEFAULT_HFA
+) -> pd.DataFrame:
+    """Same walk-forward Elo as run_elo, but returns every team's rating
+    trajectory over time instead of just the final ratings. Returns a
+    long-format table: date | team | rating.
+    """
+    ratings: dict[str, float] = {}
+    history = []
+
+    for row in matches.itertuples(index=False):
+        r_home = ratings.get(str(row.home), 1500.0)
+        r_away = ratings.get(str(row.away), 1500.0)
+
+        diff = (r_home + hfa) - r_away
+        e_home = 1.0 / (1.0 + 10.0 ** (-diff / 400.0))
+
+        s_home = _SCORE[str(row.outcome)]
+        ratings[str(row.home)] = r_home + k * (s_home - e_home)
+        ratings[str(row.away)] = r_away + k * ((1.0 - s_home) - (1.0 - e_home))
+
+        history.append({"date": row.date, "team": str(row.home), "rating": ratings[str(row.home)]})
+        history.append({"date": row.date, "team": str(row.away), "rating": ratings[str(row.away)]})
+
+    return pd.DataFrame(history)
