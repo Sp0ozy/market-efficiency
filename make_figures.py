@@ -10,6 +10,8 @@ from adapters.football import load_matches
 from core.scoring import log_loss
 from holdout_report import build_holdout_table
 from models.elo import rating_history
+from core.bias import bias_table
+from explore_segments import confusion_matrix, biggest_disagreements, team_disagreement_frequency
 
 FIGURES = Path("reports/figures")
 
@@ -156,6 +158,155 @@ def fig_disagreement_bucket(elo_h: pd.DataFrame, pinnacle_h: pd.DataFrame, y: np
     plt.close(fig)
 
 
+def fig_bias(elo_h: pd.DataFrame, pinnacle_h: pd.DataFrame, y: np.ndarray) -> None:
+    """Favorite-longshot bias: Elo vs Pinnacle close, calibration residual
+    with Wilson-score CIs, overlaid. Opposite-signed correlations here are
+    evidence the market's pattern reflects genuine pricing, not a shared
+    data/devig artifact -- see explore_segments.py's bias_table output."""
+    p_elo = elo_h[["p_home", "p_draw", "p_away"]].to_numpy()
+    p_mkt = pinnacle_h[["p_home", "p_draw", "p_away"]].to_numpy()
+
+    fig, ax = plt.subplots(figsize=(9, 6))
+    ax.plot([0, 1], [0, 1], linestyle="--", linewidth=1.5, color=DIAGONAL, zorder=1)
+
+    for label, p, color in [("Elo", p_elo, BLUE), ("Pinnacle close", p_mkt, RED)]:
+        mean_pred, emp, ci_lo, ci_hi, _resid, _sig, _counts = bias_table(p, y)
+        yerr = np.vstack([
+            np.clip(emp - ci_lo, 0, None),
+            np.clip(ci_hi - emp, 0, None),
+        ])
+        ax.errorbar(mean_pred, emp, yerr=yerr, fmt="o", markersize=7, color=color,
+                    ecolor=color, elinewidth=1.3, capsize=3, label=label, zorder=3)
+
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_xlabel("predicted probability")
+    ax.set_ylabel("empirical frequency (95% Wilson CI)")
+    ax.set_title("Favorite-longshot bias: Elo vs Pinnacle close", color=INK, fontsize=13, loc="left")
+    ax.legend(frameon=False, loc="upper left")
+    _clean_axes(ax)
+    fig.tight_layout()
+    fig.savefig(FIGURES / "bias.png", dpi=150)
+    plt.close(fig)
+
+def fig_confusion_matrix(cm: pd.DataFrame) -> None:
+    """Heatmap of Elo's pick x market's pick. The empty draw row/column
+    isn't a bug -- neither model's top pick is ever a draw (see
+    explore_segments.py's confusion_matrix for why: mathematically
+    guaranteed here since DRAW_MAX < 1/3)."""
+    fig, ax = plt.subplots(figsize=(7, 6.5))
+    data = cm.to_numpy()
+    ax.imshow(data, cmap="Blues", vmin=0)
+
+    ax.set_xticks(range(3))
+    ax.set_xticklabels(cm.columns)
+    ax.set_yticks(range(3))
+    ax.set_yticklabels(cm.index)
+
+    for i in range(3):
+        for j in range(3):
+            v = data[i, j]
+            text_color = "white" if v > data.max() * 0.5 else INK
+            ax.text(j, i, f"{v:,}", ha="center", va="center", color=text_color, fontsize=13, fontweight="bold")
+
+    ax.set_xlabel("market's pick")
+    ax.set_ylabel("Elo's pick")
+    ax.set_title("Elo's pick vs market's pick", color=INK, fontsize=13, loc="left")
+    ax.text(0.0, -0.18, "Draw row/column empty by construction -- neither model's top pick is ever a draw.",
+            transform=ax.transAxes, fontsize=9, color=INK_SECONDARY)
+
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    ax.set_xticks(np.arange(-0.5, 3, 1), minor=True)
+    ax.set_yticks(np.arange(-0.5, 3, 1), minor=True)
+    ax.grid(which="minor", color="#fcfcfb", linewidth=2)
+    ax.tick_params(which="minor", size=0)
+    ax.grid(which="major", visible=False)
+
+    fig.tight_layout()
+    fig.savefig(FIGURES / "confusion_matrix.png", dpi=150)
+    plt.close(fig)
+    
+    
+def fig_disagreement_scatter(elo_h: pd.DataFrame, pinnacle_h: pd.DataFrame, bd: pd.DataFrame) -> None:
+    """Every holdout match's Elo vs Pinnacle home-win probability. Points
+    near the diagonal agree; the biggest few disagreements (from
+    explore_segments.py's biggest_disagreements table) are labeled."""
+    p_elo_home = elo_h["p_home"].to_numpy()
+    p_mkt_home = pinnacle_h["p_home"].to_numpy()
+
+    fig, ax = plt.subplots(figsize=(9, 8))
+    ax.plot([0, 1], [0, 1], linestyle="--", linewidth=1.5, color=DIAGONAL, zorder=1)
+    ax.scatter(p_mkt_home, p_elo_home, s=14, color=GREY, alpha=0.35, zorder=2)
+
+    top5 = bd.head(5)
+    for _, row in top5.iterrows():
+        ax.scatter(row["mkt_p_home"], row["elo_p_home"], s=50, color=RED, zorder=3)
+        ax.annotate(f"{row['home']} vs {row['away']}", (row["mkt_p_home"], row["elo_p_home"]),
+                    xytext=(6, 6), textcoords="offset points", fontsize=8, color=INK_SECONDARY)
+
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_xlabel("market's p(home win)")
+    ax.set_ylabel("Elo's p(home win)")
+    ax.set_title("Every match: Elo vs market -- biggest disagreements", color=INK, fontsize=13, loc="left")
+    _clean_axes(ax)
+    fig.tight_layout()
+    fig.savefig(FIGURES / "disagreement_scatter.png", dpi=150)
+    plt.close(fig)
+    
+def fig_team_disagreement(td: pd.DataFrame, n: int = 10) -> None:
+    """Top n teams by disagreement rate (>=20 matches only -- see
+    explore_segments.py's reliability flag)."""
+    reliable = td[td["reliable"]].head(n).iloc[::-1]  # reverse so #1 is on top
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    ax.barh(reliable["team"], reliable["disagree_rate"], color=BLUE)
+    for team, rate in zip(reliable["team"], reliable["disagree_rate"]):
+        ax.annotate(f"{rate:.1%}", (rate, team), xytext=(6, 0), textcoords="offset points",
+                    va="center", color=INK, fontsize=10)
+
+    ax.set_xlabel("disagreement rate")
+    ax.set_title(f"Top {n} teams by Elo/market disagreement rate", color=INK, fontsize=13, loc="left")
+    _clean_axes(ax)
+    ax.grid(axis="y", visible=False)
+    fig.tight_layout()  
+    fig.savefig(FIGURES / "team_disagreement.png", dpi=150)
+    plt.close(fig)
+    
+def fig_extreme_summary(elo_h: pd.DataFrame, pinnacle_h: pd.DataFrame, y: np.ndarray, n: int = 20) -> None:
+    """Elo's confidence vs market's price on the same pick vs actual rate,
+    for the n most lopsided matches by Elo's own rating gap."""
+    p_elo = elo_h[["p_home", "p_draw", "p_away"]].to_numpy()
+    p_mkt = pinnacle_h[["p_home", "p_draw", "p_away"]].to_numpy()
+    elo_conf = p_elo.max(axis=1)
+    elo_fav = p_elo.argmax(axis=1)
+    order = np.argsort(-elo_conf)[:n]
+    fav_idx = elo_fav[order]
+
+    values = [elo_conf[order].mean(), p_mkt[order, fav_idx].mean(), (fav_idx == y[order]).mean()]
+    labels = ["Elo's\nconfidence", "Market's price\non same pick", "Actual\nwin rate"]
+    colors = [BLUE, RED, GREY]
+
+    fig, ax = plt.subplots(figsize=(7, 6))
+    x = np.arange(3)
+    ax.bar(x, values, width=0.5, color=colors)
+    for xi, v in zip(x, values):
+        ax.annotate(f"{v:.1%}", (xi, v), xytext=(0, 8), textcoords="offset points",
+                    ha="center", color=INK, fontsize=13, fontweight="bold")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    ax.set_ylim(0, 1.05)
+    ax.set_title(f"Top {n} most lopsided matches by Elo's rating gap", color=INK, fontsize=12.5, loc="left")
+    _clean_axes(ax)
+    ax.grid(axis="x", visible=False)
+    fig.tight_layout()
+    fig.savefig(FIGURES / "extreme_summary.png", dpi=150)
+    plt.close(fig)
+
+
+
 def main() -> None:
     FIGURES.mkdir(parents=True, exist_ok=True)
 
@@ -166,8 +317,20 @@ def main() -> None:
     fig_elo_trajectories(hist)
     fig_season_trend(elo_h, pinnacle_h, y)
     fig_disagreement_bucket(elo_h, pinnacle_h, y)
+    fig_bias(elo_h, pinnacle_h, y)
 
-    print(f"wrote 3 figures to {FIGURES}/")
+    cm = confusion_matrix(elo_h, pinnacle_h, y)
+    fig_confusion_matrix(cm)
+
+    bd = biggest_disagreements(elo_h, pinnacle_h, y, n=20)
+    fig_disagreement_scatter(elo_h, pinnacle_h, bd)
+
+    td = team_disagreement_frequency(elo_h, pinnacle_h, y)
+    fig_team_disagreement(td)
+
+    fig_extreme_summary(elo_h, pinnacle_h, y)
+
+    print(f"wrote figures to {FIGURES}/")
 
 
 if __name__ == "__main__":
