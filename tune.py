@@ -2,12 +2,14 @@
 tune.py — grid-search K and HFA on the training window only, refitting the
 draw-rate curve to match each combination.
 
-CLAUDE.md hard rule #3: the holdout is sacred. All tuning happens on
-2010-2019; 2019 onward is touched exactly once, at the end. This script
-never reads or scores anything from TRAIN_CUTOFF onward.
+The holdout is sacred: it starts at the first match of season 1920 and is
+touched exactly once, in holdout_report.py. This script never reads or
+scores anything from that date onward.
 
 Run: python tune.py
 """
+
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -16,7 +18,7 @@ from adapters.football import load_matches, season_start
 from core.scoring import log_loss
 from models.elo import fit_draw_model, run_elo
 
-TRAIN_CUTOFF = pd.Timestamp("2019-01-01")  # holdout starts here; never touched by tuning
+REPORTS = Path("reports")
 
 K_GRID = [10, 15, 20, 25, 30, 40, 50]
 HFA_GRID = [0, 50, 75, 100, 125, 150]
@@ -45,6 +47,12 @@ def main() -> None:
 
     results.sort(key=lambda r: r[5])
     best_k, best_hfa, best_d_min, best_d_max, best_scale, best_ll = results[0]
+
+    grid = pd.DataFrame(
+        results, columns=["k", "hfa", "draw_min", "draw_max", "draw_scale", "log_loss"]
+    )
+    REPORTS.mkdir(exist_ok=True)
+    grid.to_csv(REPORTS / "tuning_grid.csv", index=False)
 
     print(f"training window: {train['date'].min().date()} -> {train['date'].max().date()}  (n={len(train)})")
     print(f"{'K':>5} {'HFA':>5} {'log_loss':>10}")
