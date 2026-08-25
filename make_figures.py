@@ -16,11 +16,14 @@ from explore_segments import confusion_matrix, biggest_disagreements, team_disag
 FIGURES = Path("reports/figures")
 
 BLUE = "#2a78d6"       # Elo
+BLUE_LIGHT = "#86b6ef"  # Elo, de-emphasized (half-Kelly)
 RED = "#e34948"        # Pinnacle
 GREY = "#898781"
 INK = "#0b0b0b"
 INK_SECONDARY = "#52514e"
 DIAGONAL = "#999999"
+
+REPORTS = Path("reports")
 
 BIG6 = ["Arsenal", "Chelsea", "Liverpool", "Man City", "Man United", "Tottenham"]
 BIG6_COLORS = ["#2a78d6", "#1baf7a", "#eda100", "#008300", "#4a3aa7", "#e34948"]
@@ -189,6 +192,24 @@ def fig_bias(elo_h: pd.DataFrame, pinnacle_h: pd.DataFrame, y: np.ndarray) -> No
     fig.savefig(FIGURES / "bias.png", dpi=150)
     plt.close(fig)
 
+def fig_bankroll(bankroll: pd.DataFrame) -> None:
+    """Kelly bankroll equity curves, log-scale y. One sample path, not evidence."""
+    fig, ax = plt.subplots(figsize=(9, 6))
+    ax.plot(bankroll["step"], bankroll["full_kelly"], linewidth=2, color=BLUE, label="Full Kelly")
+    ax.plot(bankroll["step"], bankroll["half_kelly"], linewidth=2, color=BLUE_LIGHT, label="Half Kelly")
+    ax.axhline(1.0, linestyle="--", linewidth=1.0, color=DIAGONAL, zorder=1)
+
+    ax.set_yscale("log")
+    ax.set_xlabel("bet number")
+    ax.set_ylabel("bankroll (start = 1.0, log scale)")
+    ax.set_title("Kelly-sized bankroll, vig included -- one sample path", color=INK, fontsize=13, loc="left")
+    ax.legend(frameon=False, loc="upper right")
+    _clean_axes(ax)
+    fig.tight_layout()
+    fig.savefig(FIGURES / "bankroll.png", dpi=150)
+    plt.close(fig)
+
+
 def fig_confusion_matrix(cm: pd.DataFrame) -> None:
     """Heatmap of Elo's pick x market's pick. The empty draw row/column
     isn't a bug -- neither model's top pick is ever a draw (see
@@ -311,7 +332,7 @@ def main() -> None:
     FIGURES.mkdir(parents=True, exist_ok=True)
 
     hist = rating_history(load_matches())
-    elo_h, aligned_sources, y, _holdout_start, _train_outcomes = build_holdout_table()
+    elo_h, aligned_sources, _odds_h, y, _holdout_start, _train_outcomes = build_holdout_table()
     pinnacle_h = aligned_sources["pinnacle_close"]
 
     fig_elo_trajectories(hist)
@@ -319,13 +340,19 @@ def main() -> None:
     fig_disagreement_bucket(elo_h, pinnacle_h, y)
     fig_bias(elo_h, pinnacle_h, y)
 
-    cm = confusion_matrix(elo_h, pinnacle_h, y)
+    bankroll_path = REPORTS / "bankroll.csv"
+    if bankroll_path.exists():
+        fig_bankroll(pd.read_csv(bankroll_path))
+    else:
+        print(f"skipping bankroll figure: run holdout_report.py first to produce {bankroll_path}")
+
+    cm = confusion_matrix(elo_h, pinnacle_h)
     fig_confusion_matrix(cm)
 
-    bd = biggest_disagreements(elo_h, pinnacle_h, y, n=20)
+    bd = biggest_disagreements(elo_h, pinnacle_h, n=20)
     fig_disagreement_scatter(elo_h, pinnacle_h, bd)
 
-    td = team_disagreement_frequency(elo_h, pinnacle_h, y)
+    td = team_disagreement_frequency(elo_h, pinnacle_h)
     fig_team_disagreement(td)
 
     fig_extreme_summary(elo_h, pinnacle_h, y)

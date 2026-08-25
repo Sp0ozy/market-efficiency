@@ -80,3 +80,33 @@ def bet365_early(path: Path = CLEAN) -> pd.DataFrame:
 def season_start(matches: pd.DataFrame, season: str) -> pd.Timestamp:
     """The first match date of `season` within an already-loaded matches table."""
     return matches.loc[matches["season"] == season, "date"].min()
+
+
+def raw_odds(
+    path: Path = CLEAN,
+    columns: tuple[str, str, str] = ("PSCH", "PSCD", "PSCA"),
+) -> pd.DataFrame:
+    """Raw quoted decimal odds (vig included), for staking only.
+
+    A real bet is placed at the quoted price, not the de-vigged fair one, so
+    this is a staking-specific companion to market_table(). Rows without a
+    quote for `columns` are dropped, matching market_table()'s behavior.
+    """
+    home_col, draw_col, away_col = columns
+    df = pd.read_parquet(path)
+    df = df.rename(columns=_RENAME)
+    df = df.dropna(subset=columns)
+
+    out = df[["date", "div", "season", "home", "away", "outcome"]].copy()
+    out["odds_home"] = df[home_col]
+    out["odds_draw"] = df[draw_col]
+    out["odds_away"] = df[away_col]
+    out = out.sort_values("date", kind="stable").reset_index(drop=True)
+
+    assert (out[["odds_home", "odds_draw", "odds_away"]].to_numpy() > 1.0).all()
+    assert out["date"].is_monotonic_increasing
+    return out
+
+
+def pinnacle_close_odds(path: Path = CLEAN) -> pd.DataFrame:
+    return raw_odds(path, columns=("PSCH", "PSCD", "PSCA"))
