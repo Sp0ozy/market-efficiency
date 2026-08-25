@@ -223,3 +223,11 @@ __marimo__/
 *.feather
 *.arrow
 ~$*
+
+# Project-specific
+data/
+.claude/
+graphify-out/
+
+!reports/*.csv
+!reports/exploratory/*.csv

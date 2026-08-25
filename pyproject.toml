@@ -1,2 +1,8 @@
+[project]
+name = "market-efficiency"
+version = "0.1.0"
+description = "Elo forecast for Premier League matches, scored against Pinnacle and Bet365 closing lines."
+requires-python = ">=3.11"
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
