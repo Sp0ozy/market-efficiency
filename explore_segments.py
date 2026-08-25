@@ -2,7 +2,7 @@
 explore_segments.py — EXPLORATORY characterization of where and why Elo
 disagrees with the market. NOT a new confirmatory finding.
 
-CLAUDE.md hard rule #3: the holdout is touched once, at the end. This script
+The holdout is meant to be touched once, in holdout_report.py. This script
 touches it again, deliberately, slicing it several ways to characterize
 disagreement. With ~2,000+ holdout matches sliced multiple ways, some
 pattern will look interesting by chance -- treat everything here as
@@ -22,7 +22,7 @@ OUT = Path("reports/exploratory")
 BANNER = "(exploratory -- characterizes disagreement, not a new confirmatory finding)"
 
 
-def confusion_matrix(elo_h: pd.DataFrame, pinnacle_h: pd.DataFrame, y: np.ndarray) -> pd.DataFrame:
+def confusion_matrix(elo_h: pd.DataFrame, pinnacle_h: pd.DataFrame) -> pd.DataFrame:
     """Elo's pick x market's pick: 3x3 counts."""
     p_elo = elo_h[["p_home", "p_draw", "p_away"]].to_numpy()
     p_mkt = pinnacle_h[["p_home", "p_draw", "p_away"]].to_numpy()
@@ -38,7 +38,7 @@ def confusion_matrix(elo_h: pd.DataFrame, pinnacle_h: pd.DataFrame, y: np.ndarra
     return pd.DataFrame(counts, index=[f"elo:{l}" for l in labels], columns=[f"mkt:{l}" for l in labels])
 
 
-def biggest_disagreements(elo_h: pd.DataFrame, pinnacle_h: pd.DataFrame, y: np.ndarray, n: int = 20) -> pd.DataFrame:
+def biggest_disagreements(elo_h: pd.DataFrame, pinnacle_h: pd.DataFrame, n: int = 20) -> pd.DataFrame:
     """Top n matches by |p_home_elo - p_home_market|."""
     p_elo = elo_h[["p_home", "p_draw", "p_away"]].to_numpy()
     p_mkt = pinnacle_h[["p_home", "p_draw", "p_away"]].to_numpy()
@@ -55,11 +55,10 @@ def biggest_disagreements(elo_h: pd.DataFrame, pinnacle_h: pd.DataFrame, y: np.n
     return pd.DataFrame(rows)
 
 
-def team_disagreement_frequency(elo_h: pd.DataFrame, pinnacle_h: pd.DataFrame, y: np.ndarray) -> pd.DataFrame:
+def team_disagreement_frequency(elo_h: pd.DataFrame, pinnacle_h: pd.DataFrame) -> pd.DataFrame:
     """For each team, how often are they in a match where Elo and the market
     disagree, out of how many total matches. Teams with < 20 matches are
-    flagged -- same suspicious-sample-size threshold as clean.py's NAME_MAP
-    check, for the same reason: too few matches to say anything real."""
+    flagged unreliable: too few matches to say anything real."""
     p_elo = elo_h[["p_home", "p_draw", "p_away"]].to_numpy()
     p_mkt = pinnacle_h[["p_home", "p_draw", "p_away"]].to_numpy()
     elo_pick = p_elo.argmax(axis=1)
@@ -114,23 +113,23 @@ def extreme_matches_table(elo_h: pd.DataFrame, pinnacle_h: pd.DataFrame, y: np.n
 
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
-    elo_h, aligned_sources, y, _holdout_start, _train_outcomes = build_holdout_table()
+    elo_h, aligned_sources, _odds_h, y, _holdout_start, _train_outcomes = build_holdout_table()
     pinnacle_h = aligned_sources["pinnacle_close"]
 
     print(f"{'=' * 70}\nEXPLORATORY SEGMENT ANALYSIS\n{BANNER}\n{'=' * 70}")
 
     print("\n--- confusion matrix (rows=Elo's pick, cols=market's pick) ---")
-    cm = confusion_matrix(elo_h, pinnacle_h, y)
+    cm = confusion_matrix(elo_h, pinnacle_h)
     print(cm.to_string())
     cm.to_csv(OUT / "confusion_matrix.csv")
 
     print("\n--- biggest disagreements ---")
-    bd = biggest_disagreements(elo_h, pinnacle_h, y, n=20)
+    bd = biggest_disagreements(elo_h, pinnacle_h, n=20)
     print(bd.round(3).to_string(index=False))
     bd.to_csv(OUT / "biggest_disagreements.csv", index=False)
 
     print("\n--- team disagreement frequency (>=20 matches only, shown) ---")
-    td = team_disagreement_frequency(elo_h, pinnacle_h, y)
+    td = team_disagreement_frequency(elo_h, pinnacle_h)
     print(td[td["reliable"]].head(10).to_string(index=False))
     td.to_csv(OUT / "team_disagreement.csv", index=False)
 

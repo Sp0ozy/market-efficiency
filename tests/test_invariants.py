@@ -71,8 +71,15 @@ def real_pipeline():
 
     Loaded lazily (only when a test requests this fixture) so a missing
     pipeline module fails just the tests that depend on it, not collection
-    of the fixture-based tests above.
+    of the fixture-based tests above. Skips (rather than errors) when
+    data/clean.parquet hasn't been generated -- e.g. in CI, where the raw
+    match data isn't checked in.
     """
+    from pathlib import Path
+
+    if not Path("data/clean.parquet").exists():
+        pytest.skip("data/clean.parquet not present -- run download.py and clean.py first")
+
     from adapters.football import load_matches, market_table
     from models.elo import run_elo
 

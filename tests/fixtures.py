@@ -1,6 +1,4 @@
 """
-PURELY AI GENERATED FILE
-
 tests/fixtures.py — fake Contract-A predictions tables for testing before
 the real model or market adapter exist.
 

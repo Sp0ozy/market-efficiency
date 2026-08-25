@@ -4,7 +4,7 @@ import pandas as pd
 IN = Path("data/matches.parquet")
 OUT = Path("data/clean.parquet")
 
-# All 42 temas wew visible to be uniqe, so mapping will remain empty.
+# All 42 team names came through unique, so this mapping stays empty.
 NAME_MAP: dict[str, str] = {}
 
 def normalize_names(df: pd.DataFrame) -> pd.DataFrame:
